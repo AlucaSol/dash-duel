@@ -219,7 +219,9 @@ export class UIManager {
           <hr class="settings-divider" />
           <div class="support-block">
             <div class="support-text">Enjoying Dash Duel?</div>
-            <div class="kofi-widget" id="kofi-container"></div>
+            <a class="kofi-widget" href="https://ko-fi.com/G2L623AJ3W" target="_blank" rel="noopener noreferrer">
+              <img height="36" style="height:36px;border:0" src="https://storage.ko-fi.com/cdn/kofi5.png?v=6" alt="Buy Me a Coffee at ko-fi.com" />
+            </a>
           </div>
           <button class="btn small primary" id="btn-settings-close">Done</button>
         </div>
@@ -488,22 +490,6 @@ export class UIManager {
   openSettings(): void {
     this.syncSettings();
     this.els['modal-settings'].classList.add('active');
-    this.loadKofiWidget();
-  }
-
-  /** Lazily injects the Ko-fi support widget the first time settings is opened. */
-  private loadKofiWidget(): void {
-    const container = this.els['kofi-container'];
-    if (!container || container.dataset.loaded) return;
-    container.dataset.loaded = '1';
-    const lib = document.createElement('script');
-    lib.src = 'https://storage.ko-fi.com/cdn/widget/Widget_2.js';
-    lib.async = false;
-    const init = document.createElement('script');
-    init.async = false;
-    init.text = "kofiwidget2.init('Buy me a coffee', '#348a86', 'G2L623AJ3W');kofiwidget2.draw();";
-    container.appendChild(lib);
-    container.appendChild(init);
   }
 
   closeSettings(): void {

@@ -140,26 +140,33 @@ export class HudRenderer {
       ctx.fill();
     }
 
-    // Ability slots: framed dash + module squares with keybind chips.
-    const slotY = 54;
-    const slot1X = right ? x0 + 330 - 64 - 14 : x0 + 64 + 14;
-    const slot2X = right ? slot1X - 36 : slot1X + 36;
+    ctx.restore();
+
+    // Ability slots live in the open gap between this panel and the centre
+    // scoreboard, in line with the health bar — not inside the panel itself.
+    const hs = 20; // slot half-size
+    const slotY = 38;
+    const panelEdge = right ? x0 : x0 + 330;
+    const dir = right ? -1 : 1;
+    const margin = 34;
+    const innerGap = 20;
+    const slot1X = panelEdge + dir * (margin + hs); // dash: nearest this panel
+    const slot2X = panelEdge + dir * (margin + hs * 2 + innerGap + hs); // module: nearest centre
     const locked = view.phase !== 1;
     const showKeys = team === view.localTeam;
-    this.drawAbilitySlot(ctx, slot1X, slotY, p.dashCd / DASH.cooldown, this.readyFlash.dash[team], col, 'dash', p.module, locked, p.dashCd, showKeys ? 'SPACE' : null);
-    this.drawAbilitySlot(ctx, slot2X, slotY, p.moduleCd / MODULES[p.module].cooldown, this.readyFlash.module[team], col, 'module', p.module, locked, p.moduleCd, showKeys ? 'E' : null);
-    ctx.restore();
+    this.drawAbilitySlot(ctx, slot1X, slotY, hs, p.dashCd / DASH.cooldown, this.readyFlash.dash[team], col, 'dash', p.module, locked, p.dashCd, showKeys ? 'SPACE' : null);
+    this.drawAbilitySlot(ctx, slot2X, slotY, hs, p.moduleCd / MODULES[p.module].cooldown, this.readyFlash.module[team], col, 'module', p.module, locked, p.moduleCd, showKeys ? 'E' : null);
   }
 
   private drawAbilitySlot(
     ctx: CanvasRenderingContext2D,
-    x: number, y: number,
+    x: number, y: number, hs: number,
     cdFrac: number, flash: number, col: string,
     kind: 'dash' | 'module', module: ModuleType,
     locked: boolean, cdSeconds: number, keyLabel: string | null,
   ): void {
     cdFrac = clamp01(cdFrac);
-    const hs = 13; // slot half-size
+    const s = hs / 13; // glyph scale relative to the original 26px design
     const ready = cdFrac <= 0 && !locked;
     ctx.save();
     // Framed slot backing.
@@ -179,45 +186,45 @@ export class HudRenderer {
     // Icon glyph.
     ctx.strokeStyle = locked ? 'rgba(150,160,180,0.45)' : cdFrac > 0 ? 'rgba(190,205,230,0.5)' : '#eaf2ff';
     ctx.fillStyle = ctx.strokeStyle;
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.6 * s;
     ctx.lineJoin = 'round';
     if (kind === 'dash') {
       // Lightning dash chevrons.
       ctx.beginPath();
-      ctx.moveTo(x - 5, y - 4);
+      ctx.moveTo(x - 5 * s, y - 4 * s);
       ctx.lineTo(x, y);
-      ctx.lineTo(x - 5, y + 4);
-      ctx.moveTo(x + 1, y - 4);
-      ctx.lineTo(x + 6, y);
-      ctx.lineTo(x + 1, y + 4);
+      ctx.lineTo(x - 5 * s, y + 4 * s);
+      ctx.moveTo(x + 1 * s, y - 4 * s);
+      ctx.lineTo(x + 6 * s, y);
+      ctx.lineTo(x + 1 * s, y + 4 * s);
       ctx.stroke();
     } else if (module === 'aegis') {
       ctx.beginPath();
-      ctx.moveTo(x, y - 5.5);
-      ctx.lineTo(x + 5, y - 3);
-      ctx.lineTo(x + 4, y + 3);
-      ctx.lineTo(x, y + 6);
-      ctx.lineTo(x - 4, y + 3);
-      ctx.lineTo(x - 5, y - 3);
+      ctx.moveTo(x, y - 5.5 * s);
+      ctx.lineTo(x + 5 * s, y - 3 * s);
+      ctx.lineTo(x + 4 * s, y + 3 * s);
+      ctx.lineTo(x, y + 6 * s);
+      ctx.lineTo(x - 4 * s, y + 3 * s);
+      ctx.lineTo(x - 5 * s, y - 3 * s);
       ctx.closePath();
       ctx.stroke();
     } else if (module === 'repulsor') {
       ctx.beginPath();
-      ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+      ctx.arc(x, y, 2.2 * s, 0, Math.PI * 2);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(x, y, 5.5, -0.4, 1.2);
-      ctx.arc(x, y, 5.5, Math.PI - 0.4, Math.PI + 1.2);
+      ctx.arc(x, y, 5.5 * s, -0.4, 1.2);
+      ctx.arc(x, y, 5.5 * s, Math.PI - 0.4, Math.PI + 1.2);
       ctx.stroke();
     } else {
       // Volt bolt.
       ctx.beginPath();
-      ctx.moveTo(x + 2, y - 6);
-      ctx.lineTo(x - 3, y + 1);
-      ctx.lineTo(x + 0.5, y + 1);
-      ctx.lineTo(x - 2, y + 6);
-      ctx.lineTo(x + 3.5, y - 1);
-      ctx.lineTo(x, y - 1);
+      ctx.moveTo(x + 2 * s, y - 6 * s);
+      ctx.lineTo(x - 3 * s, y + 1 * s);
+      ctx.lineTo(x + 0.5 * s, y + 1 * s);
+      ctx.lineTo(x - 2 * s, y + 6 * s);
+      ctx.lineTo(x + 3.5 * s, y - 1 * s);
+      ctx.lineTo(x, y - 1 * s);
       ctx.closePath();
       ctx.stroke();
     }
@@ -231,7 +238,7 @@ export class HudRenderer {
       ctx.fillRect(x - hs, y - hs, hs * 2, hs * 2 * cdFrac);
       ctx.restore();
       if (cdSeconds > 0.15) {
-        ctx.font = '700 9px "Segoe UI", system-ui, sans-serif';
+        ctx.font = `700 ${Math.round(9 * s)}px "Segoe UI", system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffffff';
@@ -260,19 +267,21 @@ export class HudRenderer {
     }
     // Keybind chip tab under the slot.
     if (keyLabel) {
-      const cw = keyLabel.length > 1 ? 36 : 16;
+      const cw = (keyLabel.length > 1 ? 36 : 16) * s;
+      const ch = 11 * s;
+      const cy = y + hs + 3 * s;
       ctx.fillStyle = 'rgba(10,14,24,0.95)';
-      roundRect(ctx, x - cw / 2, y + hs + 3, cw, 11, 3);
+      roundRect(ctx, x - cw / 2, cy, cw, ch, 3);
       ctx.fill();
       ctx.strokeStyle = rgba(col, locked ? 0.25 : 0.55);
       ctx.lineWidth = 1;
-      roundRect(ctx, x - cw / 2 + 0.5, y + hs + 3.5, cw - 1, 10, 3);
+      roundRect(ctx, x - cw / 2 + 0.5, cy + 0.5, cw - 1, ch - 1, 3);
       ctx.stroke();
-      ctx.font = '700 7px "Segoe UI", system-ui, sans-serif';
+      ctx.font = `700 ${Math.round(7 * s)}px "Segoe UI", system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = ready ? '#eaf2ff' : 'rgba(190,210,240,0.65)';
-      ctx.fillText(keyLabel, x, y + hs + 9);
+      ctx.fillText(keyLabel, x, cy + ch / 2);
     }
     ctx.restore();
   }
