@@ -384,6 +384,24 @@ export class AssetFactory {
       roundRect(ctx, 3.5, 3.5, w - 7, h - 11, 5);
       ctx.stroke();
       ctx.setLineDash([]);
+    } else {
+      // Amber service accents, echoing the concept blocks.
+      ctx.strokeStyle = rgba(COLORS.warn, 0.5);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(w - 4, h - 18);
+      ctx.lineTo(w - 4, h - 9);
+      ctx.lineTo(w - 13, h - 9);
+      ctx.stroke();
+      ctx.strokeStyle = rgba(COLORS.warn, 0.3);
+      ctx.beginPath();
+      ctx.moveTo(w - 26, 4);
+      ctx.lineTo(w - 18, 12);
+      ctx.moveTo(w - 18, 4);
+      ctx.lineTo(w - 10, 12);
+      ctx.stroke();
+      ctx.fillStyle = rgba(COLORS.warn, 0.35);
+      ctx.fillRect(Math.round(w / 2) - 13, h - 9, 26, 2.5);
     }
 
     // Damage cracks.
@@ -486,6 +504,88 @@ export class AssetFactory {
     ctx.lineWidth = 2;
     ctx.stroke(octagon(a.wallThickness - 3));
 
+    // Segmented panel seams across the wall band.
+    for (const s of a.segs) {
+      const len = Math.hypot(s.bx - s.ax, s.by - s.ay);
+      const ux = (s.bx - s.ax) / len;
+      const uy = (s.by - s.ay) / len;
+      const n = Math.max(1, Math.round(len / 130));
+      ctx.lineWidth = 2;
+      for (let i = 1; i < n; i++) {
+        const px = s.ax + ux * ((len * i) / n);
+        const py = s.ay + uy * ((len * i) / n);
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px - s.nx * (a.wallThickness - 2), py - s.ny * (a.wallThickness - 2));
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(190,220,255,0.07)';
+        ctx.beginPath();
+        ctx.moveTo(px + ux * 2, py + uy * 2);
+        ctx.lineTo(px + ux * 2 - s.nx * (a.wallThickness - 2), py + uy * 2 - s.ny * (a.wallThickness - 2));
+        ctx.stroke();
+      }
+    }
+
+    // Outer bumper tabs break up the silhouette at the wall midpoints.
+    const tab = (tx: number, ty: number, tw: number, th: number) => {
+      ctx.fillStyle = '#1b2334';
+      roundRect(ctx, tx, ty, tw, th, 3);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, tx, ty, tw, th, 3);
+      ctx.stroke();
+      // Small amber status light centred on the tab.
+      ctx.save();
+      ctx.shadowColor = COLORS.warn;
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = rgba(COLORS.warn, 0.75);
+      ctx.beginPath();
+      ctx.arc(tx + tw / 2, ty + th / 2, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+    tab(a.left - a.wallThickness - 8, a.cy - 72, 10, 144);
+    tab(a.right + a.wallThickness - 2, a.cy - 72, 10, 144);
+    tab(a.cx - 96, a.bottom + a.wallThickness - 2, 192, 10);
+    tab(a.cx - 96, a.top - a.wallThickness - 6, 192, 8);
+
+    // Inset perimeter lights: blue toward P1, red toward P2, amber elsewhere.
+    for (const s of a.segs) {
+      const len = Math.hypot(s.bx - s.ax, s.by - s.ay);
+      const ux = (s.bx - s.ax) / len;
+      const uy = (s.by - s.ay) / len;
+      const isDiag = s.nx !== 0 && s.ny !== 0;
+      const count = isDiag ? 1 : Math.max(2, Math.round(len / 190));
+      for (let i = 0; i < count; i++) {
+        const f = (i + 0.5) / count;
+        const px = s.ax + ux * len * f - s.nx * a.wallThickness * 0.55;
+        const py = s.ay + uy * len * f - s.ny * a.wallThickness * 0.55;
+        const color = isDiag
+          ? COLORS.warn
+          : Math.abs(px - a.cx) < 100 ? COLORS.warn : px < a.cx ? COLORS.blue : COLORS.red;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(Math.atan2(uy, ux));
+        // Recessed housing.
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        roundRect(ctx, -11, -3.5, 22, 7, 3);
+        ctx.fill();
+        // Emissive strip + bright core.
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 9;
+        ctx.fillStyle = rgba(color, 0.85);
+        roundRect(ctx, -8, -2, 16, 4, 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        roundRect(ctx, -5, -0.8, 10, 1.6, 0.8);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
     // Floor.
     const floorPath = octagon(0);
     ctx.save();
@@ -542,6 +642,23 @@ export class AssetFactory {
     ctx.moveTo(a.cx, a.top + 8);
     ctx.lineTo(a.cx, a.bottom - 8);
     ctx.stroke();
+
+    // Amber service markings on the floor beneath the wall emitters.
+    ctx.strokeStyle = rgba(COLORS.warn, 0.13);
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    for (const [mx, my] of [
+      [420, a.top + 30], [860, a.top + 30],
+      [420, a.bottom - 30], [860, a.bottom - 30],
+    ] as const) {
+      ctx.beginPath();
+      for (let k = 0; k < 3; k++) {
+        ctx.moveTo(mx - 26 + k * 20, my + 6);
+        ctx.lineTo(mx - 14 + k * 20, my - 6);
+      }
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
 
     // Spawn markers.
     for (const s of a.spawns) {
@@ -627,15 +744,26 @@ export class AssetFactory {
     ctx.lineWidth = 6;
     ctx.stroke(floorPath);
 
-    // Corner accent plates on the chamfers.
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    // Corner accent plates on the chamfers, with amber hazard striping.
     for (const s of a.segs) {
       const isDiag = s.nx !== 0 && s.ny !== 0;
       if (!isDiag) continue;
       ctx.save();
       ctx.translate((s.ax + s.bx) / 2, (s.ay + s.by) / 2);
       ctx.rotate(Math.atan2(s.by - s.ay, s.bx - s.ax));
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
       ctx.fillRect(-34, -a.wallThickness, 68, a.wallThickness);
+      ctx.beginPath();
+      ctx.rect(-34, -a.wallThickness, 68, a.wallThickness);
+      ctx.clip();
+      ctx.strokeStyle = rgba(COLORS.warn, 0.16);
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      for (let k = -40; k < 40; k += 16) {
+        ctx.moveTo(k, 2);
+        ctx.lineTo(k + a.wallThickness + 4, -a.wallThickness - 2);
+      }
+      ctx.stroke();
       ctx.restore();
     }
 

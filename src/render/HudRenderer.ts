@@ -63,6 +63,18 @@ export class HudRenderer {
     ctx.fillStyle = rgba(col, 0.8);
     if (right) ctx.fillRect(x0 + 330 - 3, 12, 3, 54);
     else ctx.fillRect(x0, 12, 3, 54);
+    // Corner bracket along the outer top edge.
+    ctx.strokeStyle = rgba(col, 0.7);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (right) {
+      ctx.moveTo(x0 + 330 - 30, 9);
+      ctx.lineTo(x0 + 330 - 10, 9);
+    } else {
+      ctx.moveTo(x0 + 10, 9);
+      ctx.lineTo(x0 + 30, 9);
+    }
+    ctx.stroke();
 
     // Emblem: the fighter sprite in a ring.
     const ex = right ? x0 + 330 - 34 : x0 + 34;
@@ -128,40 +140,41 @@ export class HudRenderer {
       ctx.fill();
     }
 
-    // Cooldown icons: dash + module.
-    const iconY = 56;
-    const icon1X = right ? x0 + 330 - 64 - 11 : x0 + 64 + 11;
-    const icon2X = right ? icon1X - 40 : icon1X + 40;
+    // Ability slots: framed dash + module squares with keybind chips.
+    const slotY = 54;
+    const slot1X = right ? x0 + 330 - 64 - 14 : x0 + 64 + 14;
+    const slot2X = right ? slot1X - 36 : slot1X + 36;
     const locked = view.phase !== 1;
-    this.drawCooldownIcon(ctx, icon1X, iconY, 11, p.dashCd / DASH.cooldown, this.readyFlash.dash[team], col, 'dash', p.module, locked, p.dashCd);
-    this.drawCooldownIcon(ctx, icon2X, iconY, 11, p.moduleCd / MODULES[p.module].cooldown, this.readyFlash.module[team], col, 'module', p.module, locked, p.moduleCd);
-    // Key labels for the local player only.
-    if (team === view.localTeam) {
-      ctx.font = '600 8px "Segoe UI", system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(190,210,240,0.6)';
-      ctx.textAlign = 'center';
-      ctx.fillText('SPACE', icon1X, iconY + 19);
-      ctx.fillText('E', icon2X, iconY + 19);
-    }
+    const showKeys = team === view.localTeam;
+    this.drawAbilitySlot(ctx, slot1X, slotY, p.dashCd / DASH.cooldown, this.readyFlash.dash[team], col, 'dash', p.module, locked, p.dashCd, showKeys ? 'SPACE' : null);
+    this.drawAbilitySlot(ctx, slot2X, slotY, p.moduleCd / MODULES[p.module].cooldown, this.readyFlash.module[team], col, 'module', p.module, locked, p.moduleCd, showKeys ? 'E' : null);
     ctx.restore();
   }
 
-  private drawCooldownIcon(
+  private drawAbilitySlot(
     ctx: CanvasRenderingContext2D,
-    x: number, y: number, r: number,
+    x: number, y: number,
     cdFrac: number, flash: number, col: string,
     kind: 'dash' | 'module', module: ModuleType,
-    locked: boolean, cdSeconds: number,
+    locked: boolean, cdSeconds: number, keyLabel: string | null,
   ): void {
     cdFrac = clamp01(cdFrac);
+    const hs = 13; // slot half-size
+    const ready = cdFrac <= 0 && !locked;
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(18,24,38,0.95)';
+    // Framed slot backing.
+    roundRect(ctx, x - hs, y - hs, hs * 2, hs * 2, 4);
+    ctx.fillStyle = 'rgba(13,18,30,0.95)';
     ctx.fill();
-    ctx.strokeStyle = locked ? 'rgba(120,130,150,0.35)' : rgba(col, cdFrac > 0 ? 0.3 : 0.85);
-    ctx.lineWidth = 1.4;
-    ctx.stroke();
+    if (ready) {
+      // Charged glow inside a ready slot.
+      const g = ctx.createLinearGradient(0, y - hs, 0, y + hs);
+      g.addColorStop(0, rgba(col, 0.05));
+      g.addColorStop(1, rgba(col, 0.24));
+      ctx.fillStyle = g;
+      roundRect(ctx, x - hs, y - hs, hs * 2, hs * 2, 4);
+      ctx.fill();
+    }
 
     // Icon glyph.
     ctx.strokeStyle = locked ? 'rgba(150,160,180,0.45)' : cdFrac > 0 ? 'rgba(190,205,230,0.5)' : '#eaf2ff';
@@ -209,14 +222,14 @@ export class HudRenderer {
       ctx.stroke();
     }
 
-    // Radial cooldown mask.
+    // Cooldown: top-down shade that drains as the ability recharges.
     if (cdFrac > 0 && !locked) {
+      ctx.save();
+      roundRect(ctx, x - hs, y - hs, hs * 2, hs * 2, 4);
+      ctx.clip();
       ctx.fillStyle = 'rgba(4,6,12,0.72)';
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.arc(x, y, r - 0.5, -Math.PI / 2, -Math.PI / 2 + cdFrac * Math.PI * 2);
-      ctx.closePath();
-      ctx.fill();
+      ctx.fillRect(x - hs, y - hs, hs * 2, hs * 2 * cdFrac);
+      ctx.restore();
       if (cdSeconds > 0.15) {
         ctx.font = '700 9px "Segoe UI", system-ui, sans-serif';
         ctx.textAlign = 'center';
@@ -227,18 +240,39 @@ export class HudRenderer {
     }
     if (locked) {
       ctx.fillStyle = 'rgba(10,12,20,0.55)';
-      ctx.beginPath();
-      ctx.arc(x, y, r - 0.5, 0, Math.PI * 2);
+      roundRect(ctx, x - hs, y - hs, hs * 2, hs * 2, 4);
       ctx.fill();
     }
-    // Ready flash ring.
+    // Frame border on top.
+    ctx.strokeStyle = locked ? 'rgba(120,130,150,0.35)' : rgba(col, ready ? 0.95 : 0.35);
+    ctx.lineWidth = ready ? 1.6 : 1.2;
+    roundRect(ctx, x - hs + 0.5, y - hs + 0.5, hs * 2 - 1, hs * 2 - 1, 4);
+    ctx.stroke();
+    // Ready flash.
     if (flash > 0) {
       ctx.globalAlpha = flash;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(x, y, r + 2 + (1 - flash) * 6, 0, Math.PI * 2);
+      const e = 2 + (1 - flash) * 6;
+      roundRect(ctx, x - hs - e, y - hs - e, (hs + e) * 2, (hs + e) * 2, 5);
       ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    // Keybind chip tab under the slot.
+    if (keyLabel) {
+      const cw = keyLabel.length > 1 ? 36 : 16;
+      ctx.fillStyle = 'rgba(10,14,24,0.95)';
+      roundRect(ctx, x - cw / 2, y + hs + 3, cw, 11, 3);
+      ctx.fill();
+      ctx.strokeStyle = rgba(col, locked ? 0.25 : 0.55);
+      ctx.lineWidth = 1;
+      roundRect(ctx, x - cw / 2 + 0.5, y + hs + 3.5, cw - 1, 10, 3);
+      ctx.stroke();
+      ctx.font = '700 7px "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = ready ? '#eaf2ff' : 'rgba(190,210,240,0.65)';
+      ctx.fillText(keyLabel, x, y + hs + 9);
     }
     ctx.restore();
   }
@@ -252,6 +286,18 @@ export class HudRenderer {
     ctx.strokeStyle = 'rgba(120,160,220,0.25)';
     ctx.lineWidth = 1;
     roundRect(ctx, cx - 130 + 0.5, 8.5, 259, 61, 9);
+    ctx.stroke();
+    // Team-colored notches on the panel's top corners.
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = rgba(teamColor(0), 0.7);
+    ctx.beginPath();
+    ctx.moveTo(cx - 120, 9);
+    ctx.lineTo(cx - 100, 9);
+    ctx.stroke();
+    ctx.strokeStyle = rgba(teamColor(1), 0.7);
+    ctx.beginPath();
+    ctx.moveTo(cx + 100, 9);
+    ctx.lineTo(cx + 120, 9);
     ctx.stroke();
 
     // Logo + format.
@@ -267,14 +313,25 @@ export class HudRenderer {
     ctx.fillStyle = 'rgba(150,175,210,0.75)';
     ctx.fillText(`BEST OF ${ROUND.bestOf} · FIRST TO ${ROUND.winsNeeded}`, cx, 34);
 
-    // Score + round pips.
-    ctx.font = '800 20px "Segoe UI", system-ui, sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(`${view.scores[0]}  –  ${view.scores[1]}`, cx, 55);
+    // Score chips flanking the round pips, matching the concept framing.
+    for (const side of [0, 1] as const) {
+      const scol = teamColor(side);
+      const chipX = side === 0 ? cx - 122 : cx + 122 - 34;
+      ctx.fillStyle = rgba(scol, 0.16);
+      roundRect(ctx, chipX, 40, 34, 24, 5);
+      ctx.fill();
+      ctx.strokeStyle = rgba(scol, 0.8);
+      ctx.lineWidth = 1.2;
+      roundRect(ctx, chipX + 0.5, 40.5, 33, 23, 5);
+      ctx.stroke();
+      ctx.font = '800 16px "Segoe UI", system-ui, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(String(view.scores[side]), chipX + 17, 58);
+    }
     for (let s = 0; s < ROUND.winsNeeded; s++) {
       // Blue pips grow leftward, red pips rightward.
-      this.pip(ctx, cx - 52 - s * 16, 48, view.scores[0] > s, 0);
-      this.pip(ctx, cx + 52 + s * 16, 48, view.scores[1] > s, 1);
+      this.pip(ctx, cx - 24 - s * 16, 50, view.scores[0] > s, 0);
+      this.pip(ctx, cx + 24 + s * 16, 50, view.scores[1] > s, 1);
     }
 
     // Timer / sudden death.

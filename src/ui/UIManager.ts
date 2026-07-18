@@ -68,7 +68,8 @@ export class UIManager {
       </div>
 
       <div class="screen" data-s="menu">
-        <div class="logo">DASH DUEL</div>
+        <img class="logo-img" id="menu-logo-img" src="${import.meta.env.BASE_URL}branding/logo.png" alt="Dash Duel" />
+        <div class="logo" id="menu-logo-text">DASH DUEL</div>
         <div class="tagline">RICOCHET · DASH · OUTPLAY</div>
         <div class="menu-buttons">
           <button class="btn primary" id="btn-solo">Solo Battle</button>
@@ -215,6 +216,11 @@ export class UIManager {
             <label>Fullscreen</label>
             <button class="btn small" id="btn-fullscreen">Toggle Fullscreen</button>
           </div>
+          <hr class="settings-divider" />
+          <div class="support-block">
+            <div class="support-text">Enjoying Dash Duel?</div>
+            <div class="kofi-widget" id="kofi-container"></div>
+          </div>
           <button class="btn small primary" id="btn-settings-close">Done</button>
         </div>
       </div>
@@ -229,6 +235,26 @@ export class UIManager {
       this.els[el.id] = el;
     }
     this.buildLoadoutCards();
+    this.bindMenuLogo();
+  }
+
+  /**
+   * Logo art hook: drop an image at public/branding/logo.png (visible at
+   * /branding/logo.png in dev and build) to replace the text wordmark. Falls
+   * back to the gradient text logo when no image is present.
+   */
+  private bindMenuLogo(): void {
+    const img = this.els['menu-logo-img'] as HTMLImageElement;
+    const text = this.els['menu-logo-text'];
+    img.style.display = 'none';
+    img.addEventListener('load', () => {
+      text.style.display = 'none';
+      img.style.display = '';
+    });
+    img.addEventListener('error', () => {
+      img.style.display = 'none';
+      text.style.display = '';
+    });
   }
 
   private buildLoadoutCards(): void {
@@ -462,6 +488,22 @@ export class UIManager {
   openSettings(): void {
     this.syncSettings();
     this.els['modal-settings'].classList.add('active');
+    this.loadKofiWidget();
+  }
+
+  /** Lazily injects the Ko-fi support widget the first time settings is opened. */
+  private loadKofiWidget(): void {
+    const container = this.els['kofi-container'];
+    if (!container || container.dataset.loaded) return;
+    container.dataset.loaded = '1';
+    const lib = document.createElement('script');
+    lib.src = 'https://storage.ko-fi.com/cdn/widget/Widget_2.js';
+    lib.async = false;
+    const init = document.createElement('script');
+    init.async = false;
+    init.text = "kofiwidget2.init('Buy me a coffee', '#348a86', 'G2L623AJ3W');kofiwidget2.draw();";
+    container.appendChild(lib);
+    container.appendChild(init);
   }
 
   closeSettings(): void {
