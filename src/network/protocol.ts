@@ -82,6 +82,10 @@ export type NetMsg =
   | { t: 'loadout'; module: ModuleType }
   | { t: 'ready'; ready: boolean }
   | { t: 'startMatch'; seed: number; hostLoadout: ModuleType; clientLoadout: ModuleType }
+  /** Sent by either peer once its match assets are loaded and it is at the gate. */
+  | { t: 'matchReady' }
+  /** Host → client: both sides are loaded, unfreeze and play. */
+  | { t: 'matchGo' }
   | { t: 'roundStart'; round: number; swap: boolean; scores: [number, number] }
   | { t: 'input'; seq: number; mx: number; my: number; aim: number; b: number }
   | SnapshotMsg
@@ -162,6 +166,8 @@ export function validateMsg(raw: unknown): NetMsg | null {
     case 'matchEnd':
       if (!num(m.winner) || !Array.isArray(m.scores) || !num(m.scores[0]) || !num(m.scores[1])) return null;
       return raw as NetMsg;
+    case 'matchReady':
+    case 'matchGo':
     case 'returnToLobby':
     case 'leave':
       return raw as NetMsg;

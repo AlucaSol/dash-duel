@@ -6,6 +6,9 @@ import { MODULES } from '../game/constants';
 import type { Settings } from '../game/settings';
 import type { Difficulty, ModuleType } from '../game/types';
 import { sanitizeFriendCode } from '../utils/random';
+// Single source of truth for the credits text lives at the project root, so
+// editing music.txt is all that is needed to update the credits panel.
+import musicCredits from '../../music.txt?raw';
 
 export interface UiHandlers {
   onSolo(diff: Difficulty): void;
@@ -22,11 +25,13 @@ export interface UiHandlers {
   onSettingsChanged(): void;
   onCopyCode(): void;
   onToggleFullscreen(): void;
+  onMusicSkip(): void;
   uiSound(kind: 'click' | 'hover'): void;
 }
 
 export type ScreenName =
-  | 'none' | 'loading' | 'menu' | 'howto' | 'solo' | 'host' | 'join' | 'loadout' | 'result' | 'error';
+  | 'none' | 'loading' | 'menu' | 'howto' | 'solo' | 'host' | 'join' | 'loadout'
+  | 'matchload' | 'result' | 'error';
 
 export interface LobbyUiState {
   online: boolean;
@@ -170,6 +175,13 @@ export class UIManager {
         </div>
       </div>
 
+      <div class="screen" data-s="matchload">
+        <div class="logo" style="font-size:44px">ENTERING THE ARENA</div>
+        <div class="load-bar"><div id="match-load-fill"></div></div>
+        <div class="status" id="match-load-label">Loading…</div>
+        <button class="btn small ghost" id="btn-matchload-cancel">Cancel</button>
+      </div>
+
       <div class="screen" data-s="result">
         <div class="result-buttons">
           <button class="btn primary" id="btn-rematch">Rematch</button>
@@ -217,6 +229,20 @@ export class UIManager {
             <button class="btn small" id="btn-fullscreen">Toggle Fullscreen</button>
           </div>
           <hr class="settings-divider" />
+          <div class="music-block">
+            <div class="music-row">
+              <span class="music-caption">Playlist</span>
+              <span class="music-title" id="music-title">—</span>
+              <button class="icon-btn" id="btn-music-skip" title="Skip track" aria-label="Skip track" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M5 4.5 15 12 5 19.5z" />
+                  <rect x="16.4" y="4.5" width="2.6" height="15" rx="1" />
+                </svg>
+              </button>
+            </div>
+            <button class="btn tiny ghost" id="btn-music-credits">Music Credits</button>
+          </div>
+          <hr class="settings-divider" />
           <div class="support-block">
             <div class="support-text">Enjoying Dash Duel?</div>
             <a class="kofi-widget" href="https://ko-fi.com/G2L623AJ3W" target="_blank" rel="noopener noreferrer">
@@ -224,6 +250,14 @@ export class UIManager {
             </a>
           </div>
           <button class="btn small primary" id="btn-settings-close">Done</button>
+        </div>
+      </div>
+
+      <div class="modal-backdrop" id="modal-credits">
+        <div class="panel credits-panel">
+          <h2>Music <span class="accent">Credits</span></h2>
+          <div class="credits-body" id="credits-body"></div>
+          <button class="btn small primary" id="btn-credits-close">Close</button>
         </div>
       </div>
 
@@ -237,7 +271,19 @@ export class UIManager {
       this.els[el.id] = el;
     }
     this.buildLoadoutCards();
+    this.buildCredits();
     this.bindMenuLogo();
+  }
+
+  /** Renders music.txt (one credit line per row) into the credits modal. */
+  private buildCredits(): void {
+    const body = this.els['credits-body'];
+    const lines = musicCredits.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    body.innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
+    for (const a of Array.from(body.querySelectorAll('a'))) {
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    }
   }
 
   /**
@@ -288,7 +334,7 @@ export class UIManager {
     // Hover blips on every button.
     this.root.addEventListener('mouseover', (e) => {
       const t = e.target;
-      if (t instanceof HTMLElement && (t.classList.contains('btn') || t.classList.contains('pick-card'))) {
+      if (t instanceof Element && t.closest('.btn, .pick-card, .icon-btn')) {
         h.uiSound('hover');
       }
     });
@@ -305,6 +351,7 @@ export class UIManager {
     click('btn-join-go', () => this.submitJoin());
     click('btn-copy', () => h.onCopyCode());
     click('btn-loadout-back', () => h.onBack());
+    click('btn-matchload-cancel', () => h.onQuit());
     click('btn-loadout-ready', () => h.onLoadoutReady());
     click('btn-rematch', () => h.onRematch());
     click('btn-changeloadout', () => h.onChangeLoadout());
@@ -315,6 +362,9 @@ export class UIManager {
     click('btn-pause-quit', () => h.onQuit());
     click('btn-settings-close', () => this.closeSettings());
     click('btn-fullscreen', () => h.onToggleFullscreen());
+    click('btn-music-skip', () => h.onMusicSkip());
+    click('btn-music-credits', () => this.openCredits());
+    click('btn-credits-close', () => this.closeCredits());
 
     // Difficulty cards.
     for (const card of Array.from(this.root.querySelectorAll<HTMLElement>('[data-diff]'))) {
@@ -401,6 +451,18 @@ export class UIManager {
   setLoading(frac: number, label: string): void {
     (this.els['load-fill'] as HTMLElement).style.width = `${Math.round(frac * 100)}%`;
     this.els['load-label'].textContent = label;
+  }
+
+  /** Progress for the pre-match loading screen (assets + opponent handshake). */
+  setMatchLoading(frac: number, label: string): void {
+    (this.els['match-load-fill'] as HTMLElement).style.width = `${Math.round(frac * 100)}%`;
+    this.els['match-load-label'].textContent = label;
+  }
+
+  /** Current music track shown in the settings playlist section. */
+  setNowPlaying(title: string, canSkip: boolean): void {
+    this.els['music-title'].textContent = title;
+    (this.els['btn-music-skip'] as HTMLButtonElement).disabled = !canSkip;
   }
 
   setHostCode(code: string | null): void {
@@ -493,11 +555,24 @@ export class UIManager {
   }
 
   closeSettings(): void {
+    this.closeCredits();
     this.els['modal-settings'].classList.remove('active');
   }
 
   get settingsOpen(): boolean {
     return this.els['modal-settings'].classList.contains('active');
+  }
+
+  openCredits(): void {
+    this.els['modal-credits'].classList.add('active');
+  }
+
+  closeCredits(): void {
+    this.els['modal-credits'].classList.remove('active');
+  }
+
+  get creditsOpen(): boolean {
+    return this.els['modal-credits'].classList.contains('active');
   }
 
   syncSettings(): void {

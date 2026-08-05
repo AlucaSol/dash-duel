@@ -12,6 +12,7 @@ import { Renderer } from '../render/Renderer';
 import type { DebugInfo } from '../render/Renderer';
 import { AudioSystem } from '../systems/AudioSystem';
 import { InputSystem } from '../systems/InputSystem';
+import { MusicSystem } from '../systems/MusicSystem';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { ScreenEffects } from '../systems/ScreenEffects';
 import { UIManager } from '../ui/UIManager';
@@ -29,14 +30,20 @@ import type {
 import { emptyInput } from './types';
 import { clamp } from '../utils/math';
 
-type AppState = 'boot' | 'menu' | 'howto' | 'solo' | 'host' | 'join' | 'lobby' | 'match' | 'result' | 'error';
+type AppState =
+  | 'boot' | 'menu' | 'howto' | 'solo' | 'host' | 'join' | 'lobby'
+  | 'matchload' | 'match' | 'result' | 'error';
 type Mode = 'idle' | 'solo' | 'hostnet' | 'clientnet';
 
-const MENU_SCREENS: AppState[] = ['menu', 'howto', 'solo', 'host', 'join', 'lobby', 'error'];
+const MENU_SCREENS: AppState[] = ['menu', 'howto', 'solo', 'host', 'join', 'lobby', 'matchload', 'error'];
+
+/** States where the match soundtrack owns the speakers instead of the menu theme. */
+const MATCH_MUSIC_STATES: AppState[] = ['match', 'result'];
 
 export class Game {
   private settings: Settings;
   private audio: AudioSystem;
+  private music: MusicSystem;
   private input = new InputSystem();
   private particles = new ParticleSystem();
   private effects: ScreenEffects;
@@ -69,6 +76,13 @@ export class Game {
   private hostReady = false;
   private clientReady = false;
 
+  // Pre-match loading gate: nobody moves until both sides finished loading.
+  private pendingStart: { seed: number; hostLoadout: ModuleType; clientLoadout: ModuleType } | null = null;
+  private localMatchReady = false;
+  private peerMatchReady = false;
+  /** Bumped whenever a pending load is abandoned, so stale loads can't fire. */
+  private matchLoadToken = 0;
+
   // Client-side networking
   private inputSeq = 0;
   private edgeDash = false;
@@ -96,6 +110,7 @@ export class Game {
   constructor(private canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.settings = loadSettings();
     this.audio = new AudioSystem(this.settings.volume);
+    this.music = new MusicSystem(this.settings.volume);
     this.effects = new ScreenEffects(this.settings);
     const arena = createArenaDef();
     this.assets = new AssetFactory(arena);
@@ -115,12 +130,17 @@ export class Game {
       onSettingsChanged: () => this.applySettings(),
       onCopyCode: () => this.copyCode(),
       onToggleFullscreen: () => this.toggleFullscreen(),
+      onMusicSkip: () => this.music.skip(),
       uiSound: (k) => this.audio.play(k === 'click' ? 'uiClick' : 'uiHover'),
     });
+    this.music.onTrackChange = (title, canSkip) => this.ui.setNowPlaying(title, canSkip);
     this.seenHints = localStorage.getItem('dashduel:hints') === '1';
 
     this.input.attach(canvas, (sx, sy) => this.renderer.toLogical(sx, sy));
-    this.input.onAnyGesture = () => this.audio.unlock();
+    this.input.onAnyGesture = () => {
+      this.audio.unlock();
+      this.music.unlock();
+    };
     this.input.onEscape = () => this.onEscape();
     this.input.onDebugToggle = () => {
       this.debugOn = (this.debugOn + 1) % 3;
@@ -140,7 +160,11 @@ export class Game {
   async boot(): Promise<void> {
     this.ui.show('loading');
     const started = performance.now();
-    await this.assets.init((f, label) => this.ui.setLoading(f, label));
+    await this.assets.init((f, label) => this.ui.setLoading(f * 0.7, label));
+    // The menu theme ships with the boot screen so it can start the moment the
+    // main menu appears, and keep playing across every later loading screen.
+    await this.music.loadMenu((f) => this.ui.setLoading(0.7 + f * 0.3, 'Cueing the soundtrack'));
+    this.ui.setLoading(1, 'Ready');
     const remain = Math.max(0, 650 - (performance.now() - started));
     await new Promise((r) => setTimeout(r, remain));
     this.toMenu();
@@ -163,6 +187,7 @@ export class Game {
   private applySettings(): void {
     saveSettings(this.settings);
     this.audio.setVolume(this.settings.volume);
+    this.music.setVolume(this.settings.volume);
     this.particles.setCap(PARTICLE_CAPS[this.settings.quality]);
     this.layout();
   }
@@ -173,6 +198,9 @@ export class Game {
 
   private setState(s: AppState): void {
     this.state = s;
+    // Menu theme owns every screen except a live match; 'matchload' is left
+    // alone so the theme carries on playing over the loading screen.
+    if (s !== 'matchload' && !MATCH_MUSIC_STATES.includes(s)) this.music.toMenu();
     this.input.capture = s === 'match';
     this.canvas.style.cursor = s === 'match' ? 'none' : 'crosshair';
     // If an online match starts while the tab is hidden (e.g. a rematch
@@ -182,6 +210,7 @@ export class Game {
 
   private toMenu(): void {
     this.stopMatchArtifacts();
+    this.cancelMatchLoad();
     this.teardownNet();
     this.mode = 'idle';
     this.sim = null;
@@ -196,6 +225,7 @@ export class Game {
 
   private backToMenu(): void {
     // Cancel from host/join/lobby screens.
+    this.cancelMatchLoad();
     this.teardownNet();
     this.setState('menu');
     this.ui.show('menu');
@@ -222,6 +252,10 @@ export class Game {
   }
 
   private onEscape(): void {
+    if (this.ui.creditsOpen) {
+      this.ui.closeCredits();
+      return;
+    }
     if (this.ui.settingsOpen) {
       this.ui.closeSettings();
       return;
@@ -235,6 +269,10 @@ export class Game {
       case 'join':
         this.setState('menu');
         this.ui.show('menu');
+        break;
+      case 'matchload':
+        // Escape hatch if an opponent never finishes loading.
+        this.quitFromPause();
         break;
       case 'host':
         this.backToMenu();
@@ -385,6 +423,69 @@ export class Game {
 
   private startSoloMatch(): void {
     if (!this.myModule) return;
+    this.enterMatchLoading();
+  }
+
+  // ==========================================================================
+  // Pre-match loading gate
+  // ==========================================================================
+
+  /**
+   * Shows the pre-match loading screen and pulls in the match soundtrack. Solo
+   * drops straight into the match once loaded; online waits at the gate until
+   * BOTH peers report ready, so nobody can shoot at a still-loading opponent.
+   */
+  private enterMatchLoading(): void {
+    this.localMatchReady = false;
+    this.peerMatchReady = false;
+    const token = ++this.matchLoadToken;
+    this.setState('matchload');
+    this.ui.show('matchload');
+    this.ui.setMatchLoading(this.music.playlistReady ? 1 : 0, 'Loading soundtrack…');
+    void this.music
+      .preparePlaylist((f) => {
+        if (token === this.matchLoadToken) this.ui.setMatchLoading(f, 'Loading soundtrack…');
+      })
+      .then(() => {
+        if (token !== this.matchLoadToken || this.state !== 'matchload') return;
+        this.ui.setMatchLoading(1, 'Ready');
+        this.onMatchAssetsReady();
+      });
+  }
+
+  private onMatchAssetsReady(): void {
+    if (this.mode === 'solo') {
+      this.beginSoloMatch();
+      return;
+    }
+    this.localMatchReady = true;
+    if (this.mode === 'hostnet') {
+      this.ui.setMatchLoading(1, 'Waiting for your opponent…');
+      this.tryStartOnlineMatch();
+    } else {
+      this.ui.setMatchLoading(1, 'Waiting for the host…');
+      this.net?.send({ t: 'matchReady' });
+    }
+  }
+
+  /** Host side of the gate: both loaded → tell the client to go, then start. */
+  private tryStartOnlineMatch(): void {
+    if (this.mode !== 'hostnet' || this.state !== 'matchload') return;
+    if (!this.localMatchReady || !this.peerMatchReady) return;
+    this.net?.send({ t: 'matchGo' });
+    this.beginHostMatch();
+  }
+
+  /** Abandons any in-flight pre-match load (menu, disconnect, cancel). */
+  private cancelMatchLoad(): void {
+    this.matchLoadToken++;
+    this.pendingStart = null;
+    this.localMatchReady = false;
+    this.peerMatchReady = false;
+  }
+
+  private beginSoloMatch(): void {
+    if (!this.myModule) return;
     this.ai = new AIController(1, this.difficulty);
     this.aiModule = this.ai.pickModule();
     this.sim = new Simulation((Math.random() * 0xffffffff) >>> 0);
@@ -394,6 +495,7 @@ export class Game {
     this.matchWinner = null;
     this.setState('match');
     this.ui.show('none');
+    this.music.toPlaylist();
     this.startRound(1);
   }
 
@@ -468,13 +570,17 @@ export class Game {
   }
 
   private onNetClosed(): void {
-    if (this.state === 'match' || this.state === 'result' || this.state === 'lobby') {
+    if (
+      this.state === 'match' || this.state === 'result' ||
+      this.state === 'lobby' || this.state === 'matchload'
+    ) {
       this.connectionLost('The connection to the other player was lost. No winner is recorded.');
     }
   }
 
   private connectionLost(message: string): void {
     this.stopMatchArtifacts();
+    this.cancelMatchLoad();
     this.teardownNet();
     this.mode = 'idle';
     this.sim = null;
@@ -522,18 +628,30 @@ export class Game {
 
   private maybeLaunchOnline(requireManualLaunch: boolean): void {
     if (this.mode !== 'hostnet') return;
+    // Only ever launch from a screen you can launch from — a late 'ready'
+    // arriving mid-load or mid-match must not restart the duel.
+    if (this.state !== 'lobby' && this.state !== 'result') return;
     if (!this.hostReady || !this.clientReady || !this.hostLoadout || !this.clientLoadout) return;
     // Initial lobby: host presses Launch. Rematch: auto-start once both accept.
     if (!requireManualLaunch) this.launchOnlineMatch();
   }
 
+  /** Host: announce the match, then both sides load before anyone can move. */
   private launchOnlineMatch(): void {
     if (this.mode !== 'hostnet' || !this.hostLoadout || !this.clientLoadout) return;
     const seed = (Math.random() * 0xffffffff) >>> 0;
     this.net?.send({ t: 'startMatch', seed, hostLoadout: this.hostLoadout, clientLoadout: this.clientLoadout });
-    this.sim = new Simulation(seed);
-    this.sim.setLoadouts(this.hostLoadout, this.clientLoadout);
-    this.myModule = this.hostLoadout;
+    this.pendingStart = { seed, hostLoadout: this.hostLoadout, clientLoadout: this.clientLoadout };
+    this.enterMatchLoading();
+  }
+
+  private beginHostMatch(): void {
+    const start = this.pendingStart;
+    if (this.mode !== 'hostnet' || !start) return;
+    this.pendingStart = null;
+    this.sim = new Simulation(start.seed);
+    this.sim.setLoadouts(start.hostLoadout, start.clientLoadout);
+    this.myModule = start.hostLoadout;
     this.scores = [0, 0];
     this.roundNum = 1;
     this.matchWinner = null;
@@ -543,14 +661,19 @@ export class Game {
     this.remoteSeq = 0;
     this.setState('match');
     this.ui.show('none');
+    this.music.toPlaylist();
     this.startRound(1);
   }
 
-  private clientStartMatch(seed: number, hostLoadout: ModuleType, clientLoadout: ModuleType): void {
+  /** Client: the host confirmed both sides are loaded — drop into the match. */
+  private beginClientMatch(): void {
+    const start = this.pendingStart;
+    if (this.mode !== 'clientnet' || !start) return;
+    this.pendingStart = null;
     this.replica = new ClientReplica();
-    this.replica.players[0].module = hostLoadout;
-    this.replica.players[1].module = clientLoadout;
-    this.myModule = clientLoadout;
+    this.replica.players[0].module = start.hostLoadout;
+    this.replica.players[1].module = start.clientLoadout;
+    this.myModule = start.clientLoadout;
     this.scores = [0, 0];
     this.roundNum = 1;
     this.matchWinner = null;
@@ -559,11 +682,11 @@ export class Game {
     this.edgeModule = false;
     this.setState('match');
     this.ui.show('none');
+    this.music.toPlaylist();
     this.beginRoundPresentation(1);
     this.replica.resetRound(1, false, [0, 0]);
     this.renderer.resetRound();
     this.renderer.hud.resetRound();
-    void seed;
   }
 
   // ==========================================================================
@@ -751,7 +874,19 @@ export class Game {
       }
       case 'startMatch': {
         if (this.mode !== 'clientnet') return;
-        this.clientStartMatch(m.seed, m.hostLoadout, m.clientLoadout);
+        this.pendingStart = { seed: m.seed, hostLoadout: m.hostLoadout, clientLoadout: m.clientLoadout };
+        this.enterMatchLoading();
+        break;
+      }
+      case 'matchReady': {
+        if (this.mode !== 'hostnet') return;
+        this.peerMatchReady = true;
+        this.tryStartOnlineMatch();
+        break;
+      }
+      case 'matchGo': {
+        if (this.mode !== 'clientnet') return;
+        this.beginClientMatch();
         break;
       }
       case 'roundStart': {

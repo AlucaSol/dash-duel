@@ -129,7 +129,7 @@ export const DIRECTOR = {
 } as const;
 
 export const NET = {
-  protocol: 2,
+  protocol: 3,
   /** Send client input every N sim ticks. */
   inputEvery: 2,
   /** Host broadcasts a snapshot every N sim ticks. */
@@ -175,11 +175,11 @@ export function teamBright(team: 0 | 1): string {
 export const AI_CONFIGS = {
   easy: {
     decide: 0.26,
-    reaction: 0.42,
-    aimErr: 0.17,
+    reaction: 0.7,//0.42
+    aimErr: 0.3,//0.17
     aimWander: 2.2,
-    prediction: 0.25,
-    turnRate: 6,
+    prediction: 0.3,//0.25
+    turnRate: 3.5,//6
     dashChance: 0.35,
     moduleChance: 0.5,
     fireHesitation: 0.45,
@@ -188,11 +188,11 @@ export const AI_CONFIGS = {
   },
   standard: {
     decide: 0.18,
-    reaction: 0.26,
+    reaction: 0.42,//0.26
     aimErr: 0.09,
     aimWander: 1.7,
     prediction: 0.55,
-    turnRate: 9,
+    turnRate: 7,//9
     dashChance: 0.65,
     moduleChance: 0.75,
     fireHesitation: 0.2,
@@ -201,14 +201,14 @@ export const AI_CONFIGS = {
   },
   hard: {
     decide: 0.12,
-    reaction: 0.15,
+    reaction: 0.25,//0.15
     aimErr: 0.048,
     aimWander: 1.3,
     prediction: 0.85,
-    turnRate: 13,
+    turnRate: 11,//13
     dashChance: 0.85,
     moduleChance: 0.9,
-    fireHesitation: 0.06,
+    fireHesitation: 0.12,//0.06
     bankShots: true,
     threatWeight: 1.25,
   },

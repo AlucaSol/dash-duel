@@ -5,7 +5,10 @@
   "type": "module",
   "description": "Dash Duel — a fast 1v1 arcade arena duel with ricocheting shots, dashes and a living arena.",
   "scripts": {
+    "music:manifest": "tsx scripts/gen-music-manifest.ts",
+    "predev": "npm run music:manifest",
     "dev": "vite",
+    "prebuild": "npm run music:manifest",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "smoke": "tsx scripts/smoke.ts"
